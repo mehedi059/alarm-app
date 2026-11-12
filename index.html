@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>অ্যালার্ম</title>
+<style>
+:root{--bg:#10181c;--sf:#1a262c;--ln:#2b3c44;--tx:#eaf2f0;--mu:#8ea7ac;--ac:#f2b134;--ai:#1b1400;--rd:#ff7a6b}
+@media(prefers-color-scheme:light){:root{--bg:#f4f7f6;--sf:#fff;--ln:#d3dedd;--tx:#14272d;--mu:#5d777c;--ac:#c47f00;--ai:#fff;--rd:#c0392b}}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,"Noto Sans Bengali",sans-serif;padding:env(safe-area-inset-top) 0 calc(76px + env(safe-area-inset-bottom))}
+button,input,select{font:inherit;color:inherit}
+h1{font-size:1.3rem;padding:16px 16px 4px}
+main{padding:8px 16px;display:flex;flex-direction:column;gap:10px;max-width:640px;margin:auto}
+.item{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;justify-content:space-between}
+.item>div:first-child{flex:1;min-width:0;cursor:pointer}
+.big{font-size:2rem;font-weight:700;line-height:1.1}
+.big small{font-size:.9rem;font-weight:500;color:var(--mu)}
+.mu{color:var(--mu);font-size:.9rem}
+.dim{opacity:.5}
+.empty{text-align:center;color:var(--mu);padding:40px 0}
+.sw{position:relative;width:52px;height:30px;flex:none}
+.sw input{opacity:0;width:100%;height:100%;position:absolute;margin:0;z-index:1}
+.sw i{position:absolute;inset:0;background:var(--ln);border-radius:99px;transition:.2s}
+.sw i::after{content:"";position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw input:checked+i{background:var(--ac)}
+.sw input:checked+i::after{transform:translateX(22px)}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:1px solid var(--ln);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;padding:12px 4px;color:var(--mu);font-size:.85rem}
+nav button b{display:block;font-size:1.3rem}
+nav button.on{color:var(--ac);font-weight:700}
+.fab{position:fixed;right:18px;bottom:calc(84px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;border:0;background:var(--ac);color:var(--ai);font-size:2rem;box-shadow:0 4px 14px #0006}
+dialog{background:var(--sf);color:var(--tx);border:1px solid var(--ln);border-radius:16px;padding:18px;width:min(420px,92vw);margin:auto}
+dialog::backdrop{background:#000a}
+dialog h2{font-size:1.15rem;margin-bottom:12px}
+dialog input[type=text],dialog input[type=time],dialog input[type=number],dialog input[type=datetime-local],dialog select{width:100%;background:var(--bg);border:1px solid var(--ln);border-radius:10px;padding:10px;margin-bottom:10px}
+.days{display:flex;gap:4px;margin-bottom:10px}
+.days button{flex:1;padding:8px 0;background:var(--bg);border:1px solid var(--ln);border-radius:8px;font-size:.8rem}
+.days button.on{background:var(--ac);color:var(--ai);border-color:var(--ac)}
+.chk{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.row{display:flex;gap:8px}
+.btn{flex:1;background:var(--ac);color:var(--ai);border:0;border-radius:10px;padding:10px;font-weight:700}
+.ghost{background:var(--bg);color:var(--tx);border:1px solid var(--ln)}
+.del{background:var(--rd);color:#fff}
+.timer{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:14px}
+.timer .row{align-items:center}
+.timer input{margin:0!important}
+#ring{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
+#ring[hidden]{display:none}
+#ring .big{font-size:3.4rem}
+#ring input{width:140px;text-align:center;font-size:1.4rem;background:var(--sf);border:1px solid var(--ln);border-radius:10px;padding:8px}
+#ring .btn{max-width:280px;width:100%;padding:14px;font-size:1.1rem;flex:none}
+</style>
+</head>
+<body>
+<h1 id="ttl"></h1>
+<main id="app"></main>
+<button class="fab" id="fab" aria-label="নতুন">+</button>
+<nav>
+  <button data-t="alarm"><b>⏰</b>অ্যালার্ম</button>
+  <button data-t="rem"><b>🔔</b>রিমাইন্ডার</button>
+  <button data-t="cd"><b>⏳</b>কাউন্টডাউন</button>
+</nav>
+<dialog id="dlg"></dialog>
+<div id="ring" hidden></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const LN=window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.LocalNotifications;
+let S;try{S=JSON.parse(localStorage.getItem("cgalarm")||"")}catch(e){}
+S=Object.assign({alarms:[],reminders:[],events:[],n:1,timer:0,snooze:0},S||{});
+const save=()=>{try{localStorage.setItem("cgalarm",JSON.stringify(S))}catch(e){}};
+const nid=()=>S.n++;
+const pad=n=>String(n).padStart(2,"0");
+const DAYS=["রবি","সোম","মঙ্গল","বুধ","বৃহ","শুক্র","শনি"];
+const TITLES={alarm:"অ্যালার্ম",rem:"রিমাইন্ডার",cd:"কাউন্টডাউন"};
+let tab="alarm",ringing=null;const fired={};
+
+function t12(s){const [h,m]=s.split(":").map(Number);return `${pad(h%12||12)}:${pad(m)} <small>${h<12?"AM":"PM"}</small>`}
+function nextAt(s){const [h,m]=s.split(":").map(Number),d=new Date();d.setHours(h,m,0,0);if(d<=Date.now())d.setDate(d.getDate()+1);return d.getTime()}
+function toLocal(ms){return new Date(ms-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16)}
+function fmtDT(ms){const d=new Date(ms);return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`}
+function dur(ms){if(ms<0)ms=0;const s=Math.floor(ms/1e3),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+" দিন ":"")+pad(h)+":"+pad(m)+":"+pad(s%60)}
+
+/* ---------- scheduling ---------- */
+function occs(a,n){
+  const [h,m]=a.time.split(":").map(Number),now=Date.now(),out=[];
+  if(!a.days.length)return a.at&&a.at>now&&a.at>(a.skip||0)?[a.at]:[];
+  for(let i=0;i<8&&out.length<n;i++){const d=new Date();d.setDate(d.getDate()+i);d.setHours(h,m,0,0);
+    const x=d.getTime();if(x>now&&a.days.includes(d.getDay())&&x>(a.skip||0))out.push(x)}
+  return out;
+}
+function repNext(r){let x=r.at;const st=r.repeat==="day"?864e5:6048e5;while(x<=Date.now())x+=st;return x}
+async function reschedule(){
+  if(!LN)return;
+  try{
+    const p=await LN.getPending();
+    if(p.notifications.length)await LN.cancel({notifications:p.notifications.map(n=>({id:n.id}))});
+    const L=[],now=Date.now(),ch="alarm";
+    S.alarms.filter(a=>a.on).forEach(a=>occs(a,7).forEach((x,i)=>{for(let k=0;k<4;k++)L.push({id:a.id*100+i*4+k,title:"⏰ "+(a.label||"অ্যালার্ম"),body:a.time,channelId:ch,schedule:{at:new Date(x+k*30000),allowWhileIdle:true},extra:{type:"alarm",aid:a.id}})}));
+    S.reminders.forEach(r=>{
+      if(r.repeat)L.push({id:3e6+r.id,title:"🔔 "+r.title,body:"রিমাইন্ডার",channelId:ch,schedule:{at:new Date(repNext(r)),repeats:true,every:r.repeat,allowWhileIdle:true},extra:{type:"rem",rid:r.id}});
+      else if(r.at>now)L.push({id:3e6+r.id,title:"🔔 "+r.title,body:"রিমাইন্ডার",channelId:ch,schedule:{at:new Date(r.at),allowWhileIdle:true},extra:{type:"rem",rid:r.id}});
+    });
+    S.events.filter(e=>e.notify&&e.at>now).forEach(e=>L.push({id:5e6+e.id,title:"🎯 "+e.title,body:"সময় হয়েছে",channelId:ch,schedule:{at:new Date(e.at),allowWhileIdle:true},extra:{type:"event"}}));
+    if(S.timer>now)L.push({id:9999999,title:"⏳ টাইমার শেষ",body:"",channelId:ch,schedule:{at:new Date(S.timer),allowWhileIdle:true},extra:{type:"timer"}});
+    if(S.snooze&&S.snooze.t>now)L.push({id:9999998,title:S.snooze.label,body:"স্নুজ",channelId:ch,schedule:{at:new Date(S.snooze.t),allowWhileIdle:true},extra:{type:"snooze"}});
+    if(L.length)await LN.schedule({notifications:L});
+  }catch(e){console.log("sched",e)}
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  $("#ttl").textContent=TITLES[tab];
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
+  const a=$("#app");
+  if(tab==="alarm"){
+    const L=[...S.alarms].sort((x,y)=>x.time.localeCompare(y.time));
+    a.innerHTML=L.length?L.map(x=>`<div class="item ${x.on?"":"dim"}"><div onclick="editAlarm(${x.id})"><div class="big">${t12(x.time)}</div><div class="mu">${esc(x.label)||"অ্যালার্ম"} · ${x.days.length?(x.days.length===7?"প্রতিদিন":x.days.map(d=>DAYS[d]).join(" ")):"একবার"}${x.math?" · 🧮":""}</div></div>
+      <label class="sw"><input type="checkbox" ${x.on?"checked":""} onchange="togA(${x.id},this.checked)"><i></i></label></div>`).join(""):'<div class="empty">কোনো অ্যালার্ম নেই। + চাপুন।</div>';
+  }else if(tab==="rem"){
+    const L=[...S.reminders].sort((x,y)=>x.at-y.at);
+    a.innerHTML=L.length?L.map(r=>`<div class="item ${!r.repeat&&r.at<Date.now()?"dim":""}"><div onclick="editRem(${r.id})"><b>${esc(r.title)}</b><div class="mu">${fmtDT(r.at)}${r.repeat==="day"?" · প্রতিদিন":r.repeat==="week"?" · প্রতি সপ্তাহে":""}</div></div></div>`).join(""):'<div class="empty">কোনো রিমাইন্ডার নেই। + চাপুন।</div>';
+  }else{
+    const L=[...S.events].sort((x,y)=>x.at-y.at);
+    a.innerHTML=`<div class="timer"><b>টাইমার</b><div id="tm" style="margin-top:8px"></div></div>`+(L.length?L.map(e=>`<div class="item"><div onclick="editEv(${e.id})"><b>${esc(e.title)}</b><div class="mu">${fmtDT(e.at)}</div><div class="big cd" data-at="${e.at}" style="font-size:1.4rem"></div></div></div>`).join(""):'<div class="empty">কোনো ইভেন্ট নেই। + চাপুন।</div>');
+    drawTimer();
+  }
+  tickCd();
+}
+function drawTimer(){
+  const el=$("#tm");if(!el)return;
+  if(S.timer>Date.now())el.innerHTML=`<div class="row"><div class="big" id="tl" style="flex:1"></div><button class="btn del" style="flex:none" onclick="stopTimer()">বাতিল</button></div>`;
+  else el.innerHTML=`<div class="row"><input type="number" id="tmin" min="1" max="999" value="5" style="width:90px;background:var(--bg);border:1px solid var(--ln);border-radius:10px;padding:10px"><span class="mu">মিনিট</span><button class="btn" onclick="startTimer()">শুরু</button></div>`;
+}
+function tickCd(){
+  document.querySelectorAll(".cd").forEach(e=>{const d=+e.dataset.at-Date.now();e.textContent=d>0?dur(d):"সময় হয়ে গেছে"});
+  const tl=$("#tl");if(tl)tl.textContent=dur(S.timer-Date.now());
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+$("#fab").onclick=()=>({alarm:editAlarm,rem:editRem,cd:editEv}[tab])(0);
+
+/* ---------- dialogs ---------- */
+const dlg=h=>{$("#dlg").innerHTML=h;$("#dlg").showModal()};
+const closeD=()=>$("#dlg").close();
+function editAlarm(id){
+  const a=S.alarms.find(x=>x.id===id)||{time:"07:00",label:"",days:[],math:false};
+  dlg(`<h2>${id?"অ্যালার্ম বদলান":"নতুন অ্যালার্ম"}</h2>
+  <input type="time" id="f_t" value="${a.time}">
+  <input type="text" id="f_l" placeholder="নাম (যেমন: ফজর)" value="${esc(a.label)}">
+  <div class="days">${DAYS.map((d,i)=>`<button type="button" data-d="${i}" class="${a.days.includes(i)?"on":""}" onclick="this.classList.toggle('on')">${d}</button>`).join("")}</div>
+  <label class="chk"><input type="checkbox" id="f_m" ${a.math?"checked":""}> বন্ধ করতে গণিত সমাধান করতে হবে</label>
+  <div class="row"><button class="btn" onclick="saveAlarm(${id})">সেভ</button>${id?`<button class="btn del" onclick="delA(${id})">মুছুন</button>`:""}<button class="btn ghost" onclick="closeD()">বাতিল</button></div>`);
+}
+function saveAlarm(id){
+  const time=$("#f_t").value;if(!time)return;
+  const days=[...document.querySelectorAll(".days .on")].map(b=>+b.dataset.d);
+  const a=S.alarms.find(x=>x.id===id)||{id:nid()};
+  Object.assign(a,{time,label:$("#f_l").value.trim(),days,math:$("#f_m").checked,on:true,skip:0,at:days.length?0:nextAt(time)});
+  if(!S.alarms.includes(a))S.alarms.push(a);
+  save();closeD();reschedule();render();
+}
+function togA(id,on){const a=S.alarms.find(x=>x.id===id);a.on=on;a.skip=0;if(on&&!a.days.length)a.at=nextAt(a.time);save();reschedule();render()}
+function delA(id){S.alarms=S.alarms.filter(x=>x.id!==id);save();closeD();reschedule();render()}
+
+function editRem(id){
+  const r=S.reminders.find(x=>x.id===id)||{title:"",at:Date.now()+36e5,repeat:""};
+  dlg(`<h2>${id?"রিমাইন্ডার বদলান":"নতুন রিমাইন্ডার"}</h2>
+  <input type="text" id="f_l" placeholder="কী মনে করাব?" value="${esc(r.title)}">
+  <input type="datetime-local" id="f_d" value="${toLocal(r.at)}">
+  <select id="f_r"><option value="">একবার</option><option value="day" ${r.repeat==="day"?"selected":""}>প্রতিদিন</option><option value="week" ${r.repeat==="week"?"selected":""}>প্রতি সপ্তাহে</option></select>
+  <div class="row"><button class="btn" onclick="saveRem(${id})">সেভ</button>${id?`<button class="btn del" onclick="delR(${id})">মুছুন</button>`:""}<button class="btn ghost" onclick="closeD()">বাতিল</button></div>`);
+}
+function saveRem(id){
+  const title=$("#f_l").value.trim(),at=new Date($("#f_d").value).getTime();if(!title||isNaN(at))return;
+  const r=S.reminders.find(x=>x.id===id)||{id:nid()};
+  Object.assign(r,{title,at,repeat:$("#f_r").value});
+  if(!S.reminders.includes(r))S.reminders.push(r);
+  save();closeD();reschedule();render();
+}
+function delR(id){S.reminders=S.reminders.filter(x=>x.id!==id);save();closeD();reschedule();render()}
+
+function editEv(id){
+  const e=S.events.find(x=>x.id===id)||{title:"",at:Date.now()+864e5*7,notify:true};
+  dlg(`<h2>${id?"ইভেন্ট বদলান":"নতুন কাউন্টডাউন"}</h2>
+  <input type="text" id="f_l" placeholder="ইভেন্টের নাম (যেমন: পরীক্ষা)" value="${esc(e.title)}">
+  <input type="datetime-local" id="f_d" value="${toLocal(e.at)}">
+  <label class="chk"><input type="checkbox" id="f_n" ${e.notify?"checked":""}> সময় হলে নোটিফিকেশন দাও</label>
+  <div class="row"><button class="btn" onclick="saveEv(${id})">সেভ</button>${id?`<button class="btn del" onclick="delE(${id})">মুছুন</button>`:""}<button class="btn ghost" onclick="closeD()">বাতিল</button></div>`);
+}
+function saveEv(id){
+  const title=$("#f_l").value.trim(),at=new Date($("#f_d").value).getTime();if(!title||isNaN(at))return;
+  const e=S.events.find(x=>x.id===id)||{id:nid()};
+  Object.assign(e,{title,at,notify:$("#f_n").checked});
+  if(!S.events.includes(e))S.events.push(e);
+  save();closeD();reschedule();render();
+}
+function delE(id){S.events=S.events.filter(x=>x.id!==id);save();closeD();reschedule();render()}
+
+function startTimer(){const m=+$("#tmin").value;if(!(m>0))return;S.timer=Date.now()+m*60000;save();reschedule();render()}
+function stopTimer(){S.timer=0;save();reschedule();render()}
+
+/* ---------- ringing ---------- */
+let ac,si;
+function startSound(){
+  try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
+  const beep=()=>{if(!ac)return;try{const o=ac.createOscillator(),g=ac.createGain();o.type="square";o.frequency.value=880;g.gain.value=.15;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.25)}catch(e){}};
+  beep();si=setInterval(()=>{beep();if(navigator.vibrate)navigator.vibrate([300,150,300])},700);
+}
+const stopSound=()=>clearInterval(si);
+let mathAns=0;
+function ring(info){
+  if(ringing)return;ringing=info;
+  let math="";
+  if(info.math){const a=12+Math.floor(Math.random()*38),b=12+Math.floor(Math.random()*38);mathAns=a+b;math=`<div class="mu">বন্ধ করতে সমাধান করুন</div><div class="big" style="font-size:2rem">${a} + ${b} = ?</div><input type="number" id="ans" inputmode="numeric">`}
+  $("#ring").innerHTML=`<div style="font-size:3rem">⏰</div><div class="big">${esc(info.label)}</div><div class="mu">${esc(info.sub||"")}</div>${math}
+  ${info.kind==="alarm"||info.kind==="snooze"?`<button class="btn ghost" onclick="snooze()">স্নুজ (৫ মিনিট)</button>`:""}
+  <button class="btn" onclick="dismiss()">বন্ধ করুন</button>`;
+  $("#ring").hidden=false;startSound();
+}
+function endRing(){stopSound();$("#ring").hidden=true;const r=ringing;ringing=null;return r}
+function dismiss(){
+  if(ringing&&ringing.math&&+$("#ans").value!==mathAns){$("#ans").value="";$("#ans").focus();return}
+  const r=endRing();
+  if(r.kind==="alarm"){const a=S.alarms.find(x=>x.id===r.aid);if(a){a.skip=Date.now();if(!a.days.length)a.on=false}}
+  if(r.kind==="timer")S.timer=0;
+  S.snooze=0;save();reschedule();render();
+}
+function snooze(){
+  const r=endRing();
+  if(r.kind==="alarm"){const a=S.alarms.find(x=>x.id===r.aid);if(a){a.skip=Date.now();if(!a.days.length)a.on=false}}
+  S.snooze={t:Date.now()+300000,label:r.label};save();reschedule();render();
+}
+function handleN(n){
+  const x=n.extra||{};
+  if(x.type==="alarm"){const a=S.alarms.find(y=>y.id===x.aid);if(a)ring({kind:"alarm",aid:a.id,label:a.label||"অ্যালার্ম",sub:a.time,math:a.math})}
+  else ring({kind:"other",label:(n.title||"").replace(/^\S+\s/,"")});
+}
+
+/* ---------- clock loop ---------- */
+function tick(){
+  const now=Date.now(),d=new Date(now),mk=now-now%60000;
+  if(!ringing){
+    for(const a of S.alarms){
+      if(!a.on)continue;const [h,m]=a.time.split(":").map(Number);
+      if(d.getHours()!==h||d.getMinutes()!==m)continue;
+      const ok=a.days.length?a.days.includes(d.getDay()):(a.at&&Math.abs(now-a.at)<60000);
+      const k="a"+a.id+mk;
+      if(ok&&(a.skip||0)<mk&&!fired[k]){fired[k]=1;return ring({kind:"alarm",aid:a.id,label:a.label||"অ্যালার্ম",sub:a.time,math:a.math})}
+    }
+    for(const r of S.reminders){
+      const k="r"+r.id+mk,rd=new Date(r.at);
+      const due=r.repeat?(now>=r.at&&d.getHours()===rd.getHours()&&d.getMinutes()===rd.getMinutes()&&(r.repeat==="day"||d.getDay()===rd.getDay())):(r.at<=now&&now-r.at<12e4);
+      if(due&&!fired[k]){fired[k]=1;return ring({kind:"rem",label:r.title,sub:"রিমাইন্ডার"})}
+    }
+    for(const e of S.events){const k="e"+e.id;if(e.notify&&e.at<=now&&now-e.at<12e4&&!fired[k]){fired[k]=1;return ring({kind:"event",label:e.title,sub:"সময় হয়েছে"})}}
+    if(S.timer&&now>=S.timer&&!fired["t"+S.timer]){fired["t"+S.timer]=1;return ring({kind:"timer",label:"টাইমার শেষ"})}
+    if(S.snooze&&now>=S.snooze.t&&!fired["s"+S.snooze.t]){fired["s"+S.snooze.t]=1;return ring({kind:"snooze",label:S.snooze.label,sub:"স্নুজ"})}
+  }
+  tickCd();
+}
+setInterval(tick,1000);
+
+/* ---------- start ---------- */
+(async()=>{
+  if(LN){
+    try{
+      await LN.requestPermissions();
+      await LN.createChannel({id:"alarm",name:"অ্যালার্ম",description:"অ্যালার্ম ও রিমাইন্ডার",importance:5,visibility:1,vibration:true});
+      LN.addListener("localNotificationActionPerformed",e=>handleN(e.notification));
+      LN.addListener("localNotificationReceived",n=>handleN(n));
+    }catch(e){console.log(e)}
+  }
+  S.alarms.forEach(a=>{if(a.on&&!a.days.length&&a.at<Date.now()-3e5)a.on=false});
+  save();render();reschedule();
+})();
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){reschedule();render()}});
+</script>
+</body>
+</html>
